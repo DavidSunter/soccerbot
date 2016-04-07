@@ -129,6 +129,7 @@ def handle_message(event, server):
 
     try:
         msguser = server.slack.server.users[event["user"]]
+        #event['username'] = msguser
     except KeyError:
         logger.debug("event {0} has no user".format(event))
         return
