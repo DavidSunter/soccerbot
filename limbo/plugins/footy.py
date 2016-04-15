@@ -7,7 +7,7 @@ import textwrap
 
 last_user_fail = None
 
-data = shelve.open("/home/john/.footybot")
+data = shelve.open(os.path.expanduser("~/.footybot"))
 if 'players' not in data:
     data['players'] = []
 if 'date' not in data:
@@ -34,10 +34,10 @@ def footy_add_player(username):
         return "There are no upcoming games"
     if username in data['players']:
         return "{} is already down to play on {}".format(username, data['date'])
-    if data['limit'] and len(data['players']) >= data['limit']:
-        return "The game on {} has enough players already".format(data['date'])
+    # if data['limit'] and len(data['players']) >= data['limit']:
+    #     return "The game on {} has enough players already".format(data['date'])
     data['players'] = data['players'] + [username]
-    return "{} is now playing in the game on {}".format(username, data['date'])
+    return "{} is now on the shortlist for the game on {}".format(username, data['date'])
 
 
 def footy_remove_player(username):
@@ -48,19 +48,21 @@ def footy_remove_player(username):
     data['teams'] = [[player for player in team if player != username] for team in data['teams']]
     num_players_after = len(data['players'])
     if num_players_before != num_players_after:
-        return "{} is no longer playing in the game on {}".format(username, data['date'])
+        return "{} is no longer on the shortlist for the the game on {}".format(username, data['date'])
     else:
-        return "{} is not down to play in the game on {}".format(username, data['date'])
+        return "{} is not on the shortlist for the the game on {}".format(username, data['date'])
 
 
 def footy_set_team(username, team):
     if not data['date']:
         return "There are no upcoming games"
     if username not in data['players']:
-        return "{} is not down to play in the game on {}".format(username, data['date'])
-    data['teams'] = [
-        [player for player in _team if username != player or _team_id + 1 == team]
-        for _team_id, _team in enumerate(data['teams'])]
+        return "{} is not on the shortlist for the game on {}".format(username, data['date'])
+    teams = [[player for player in _team if username != player] for _team in data['teams']]
+    teams[team - 1].append(username)
+    if data['limit'] and sum(len(t) for t in teams) > data['limit']:
+        return "There are already {} players in teams".format(data['limit'])
+    data['teams'] = teams
     return "{} added to team {}".format(username, team)
 
 
@@ -69,12 +71,14 @@ def footy_set_teams(team_a, team_b):
         return "There are no upcoming games"
     for player in team_a + team_b:
         if player not in data['players']:
-            return "{} is not down to play on {}".format(player, data['date'])
+            return "{} is not on on the shortlist for the game on {}".format(player, data['date'])
     duplicates = set(team_a).intersection(set(team_b))
     if duplicates:
         return "{} {} defined in both teams".format(
             ", ".join(duplicates),
             "is" if len(duplicates) == 1 else "are")
+    if data['limit'] and sum(len(t) for t in [team_a, team_b]) > data['limit']:
+        return "You cannot put more than {} players on the pitch".format(data['limit'])
     data['teams'] = [team_a, team_b]
     teams = " vs ".join([", ".join(team) for team in data['teams']])
     return "The teams are {}".format(teams)
@@ -89,10 +93,10 @@ def footy_get():
         information.append("The teams are {}".format(teams))
         unallocated_players = set(data['players']) - set([player for team in data['teams'] for player in team])
         if len(unallocated_players) > 1:
-            information.append("{} have not been assigned teams".format(
+            information.append("{} are on the subs bench".format(
                 ", ".join(unallocated_players)))
         elif len(unallocated_players) == 1:
-            information.append("{} has not been assigned a team".format(
+            information.append("{} is on the subs bench".format(
                 list(unallocated_players)[0]))
     else:
         if not data['players']:
