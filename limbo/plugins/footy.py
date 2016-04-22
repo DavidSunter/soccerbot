@@ -3,7 +3,8 @@ import shelve
 import requests
 import os
 import textwrap
-
+import signal
+import random
 
 last_user_fail = None
 
@@ -19,6 +20,12 @@ if 'teams' not in data:
 usercache = {}
 
 
+def close_shelve():
+    data.close()
+
+signal.signal(signal.SIGTERM, close_shelve)
+
+
 def footy_set_date(date, limit=None):
     data['date'] = date
     data['players'] = []
@@ -29,15 +36,19 @@ def footy_set_date(date, limit=None):
     return "Next game set for {}".format(date)
 
 
-def footy_add_player(username):
+def footy_add_players(usernames):
     if not data['date']:
         return "There are no upcoming games"
-    if username in data['players']:
-        return "{} is already down to play on {}".format(username, data['date'])
+    for username in usernames:
+        if username in data['players']:
+            return "{} is already down to play on {}".format(username, data['date'])
     # if data['limit'] and len(data['players']) >= data['limit']:
     #     return "The game on {} has enough players already".format(data['date'])
-    data['players'] = data['players'] + [username]
-    return "{} is now on the shortlist for the game on {}".format(username, data['date'])
+    data['players'] = data['players'] + usernames
+    if len(usernames) > 1:
+        return "{} are now down for the game on {}".format(", ".join(usernames), data['date'])
+    else:
+        return "{} is now down for the game on {}".format(usernames[0], data['date'])
 
 
 def footy_remove_player(username):
@@ -48,16 +59,16 @@ def footy_remove_player(username):
     data['teams'] = [[player for player in team if player != username] for team in data['teams']]
     num_players_after = len(data['players'])
     if num_players_before != num_players_after:
-        return "{} is no longer on the shortlist for the the game on {}".format(username, data['date'])
+        return "{} is no longer down for the the game on {}".format(username, data['date'])
     else:
-        return "{} is not on the shortlist for the the game on {}".format(username, data['date'])
+        return "{} is not down for the the game on {}".format(username, data['date'])
 
 
 def footy_set_team(username, team):
     if not data['date']:
         return "There are no upcoming games"
     if username not in data['players']:
-        return "{} is not on the shortlist for the game on {}".format(username, data['date'])
+        return "{} is not down for the game on {}".format(username, data['date'])
     teams = [[player for player in _team if username != player] for _team in data['teams']]
     teams[team - 1].append(username)
     if data['limit'] and sum(len(t) for t in teams) > data['limit']:
@@ -71,7 +82,7 @@ def footy_set_teams(team_a, team_b):
         return "There are no upcoming games"
     for player in team_a + team_b:
         if player not in data['players']:
-            return "{} is not on on the shortlist for the game on {}".format(player, data['date'])
+            return "{} is not down for the game on {}".format(player, data['date'])
     duplicates = set(team_a).intersection(set(team_b))
     if duplicates:
         return "{} {} defined in both teams".format(
@@ -130,9 +141,9 @@ def footy_help():
             done                    End the current game
             join                    Join the next game
             leave                   Leave the next game
-            add <username>          Add the user to the next game
             remove <username>       Remove the user from the next game
-            team <player> [12]      Add the user to either team 1 or 2
+            team <username> [12]    Add the user to either team 1 or 2
+            add <username[, username]>  Add the user(s) to the next game
             teams <username[, username]> vs <username[, username]>  Set the teams
 
         With no options provided, outputs the details of the current game
@@ -180,6 +191,19 @@ def on_message(msg, server):
 
     command = (match.group(1) or "").strip()
 
+    # join
+    match = re.match(r"^join", command)
+    if match:
+        last_user_fail = None
+        if msg['user'] == "U07Q7EPJN":
+            return random.choice([
+                "Seriously? You? hmmm... are you sure?",
+                "Really? Isn't there a girls team you can join?",
+                "Did you ask your mummy if you can play out?",
+                "Well that isn't really going to be fair to the team that gets you...",
+            ])
+        return footy_join(get_username(msg['user']))
+
     # set <date>
     match = re.match(r"^set (.+?)(\s(\d+))?\s*$", command)
     if match:
@@ -188,11 +212,12 @@ def on_message(msg, server):
         limit = match.group(3)
         return footy_set_date(date, int(limit) if limit is not None else 10)
 
-    # add <username>
-    match = re.match(r"^add ([a-z0-9][a-z0-9._-]*)", command)
+    # add <name[, name ...]>
+    match = re.match(r"^add (([a-z0-9][a-z0-9._-]*((\s*,)?\s+)?)+)$", command)
     if match:
         last_user_fail = None
-        return footy_add_player(match.group(1))
+        players = re.findall("[a-z0-9][a-z0-9._-]*", match.group(1))
+        return footy_add_players(players)
 
     # remove <username>
     match = re.match(r"^remove ([a-z0-9][a-z0-9._-]*)", command)
@@ -212,12 +237,6 @@ def on_message(msg, server):
     if match:
         last_user_fail = None
         return footy_set_team(match.group(1), int(match.group(2)))
-
-    # join
-    match = re.match(r"^join", command)
-    if match:
-        last_user_fail = None
-        return footy_join(get_username(msg['user']))
 
     # leave
     match = re.match(r"^leave", command)
